@@ -55,27 +55,34 @@ rm(task_one)
 
 # ------Momentum Study------
 
+# set bin
 task_two <- csv[abs(prc)>5 & !is.na(prc_lag13) & !is.na(mcap_lag1) & !is.na(ret_lag2)]
 task_two <- task_two[, count:=.N, by = permno]
 task_two <- task_two[count >= 8]
 task_two <- task_two[,mom_bin:=apply_quantiles(ret_t2_t12, bins=5)]
 task_two <- task_two[,ID_bin:=apply_quantiles(ID_lag1, bins=5), by=mom_bin]
-portfolio <- task_two[,list(portfolio_vw=sum(ret_this_month*mcap_lag1)/sum(mcap_lag1)), by=list(dt,mom_bin,ID_bin)]
+portfolio <- task_two[,list(portfolio_vw=sum(ret_this_month*mcap_lag1)/sum(mcap_lag1)),
+    by=list(dt,mom_bin,ID_bin)]
 
-portfolio1 <- merge(portfolio[mom_bin==5 & ID_bin==5], portfolio[mom_bin==1 & ID_bin==5], suffixes=c('_long','_short'),by='dt')
+# strategy one
+portfolio1 <- merge(portfolio[mom_bin==5 & ID_bin==5], portfolio[mom_bin==1 & ID_bin==5],
+    suffixes=c('_long','_short'),by='dt')
 portfolio1[,strategy_vw:=portfolio_vw_long-portfolio_vw_short]
 portfolio1 <- portfolio1 %>% arrange(dt) %>% setDT
 portfolio1[,cumulative_return:=cumprod(1+strategy_vw)-1]
 portfolio1[,log_cumulative_return:=ifelse(cumulative_return>0,log(cumulative_return),NA)]   
 ggplot(portfolio1,aes(x=as.Date(dt),y=log_cumulative_return)) + geom_line()
 
-portfolio2 <- merge(portfolio[mom_bin==5 & ID_bin==1], portfolio[mom_bin==1 & ID_bin==1], suffixes=c('_long','_short'),by='dt')
+# strategy two
+portfolio2 <- merge(portfolio[mom_bin==5 & ID_bin==1], portfolio[mom_bin==1 & ID_bin==1],
+    suffixes=c('_long','_short'),by='dt')
 portfolio2[,strategy_vw:=portfolio_vw_long-portfolio_vw_short]
 portfolio2 <- portfolio2 %>% arrange(dt) %>% setDT
 portfolio2[,cumulative_return:=cumprod(1+strategy_vw)-1]
 portfolio2[,log_cumulative_return:=ifelse(cumulative_return>0,log(cumulative_return),NA)] 
 ggplot(portfolio2,aes(x=as.Date(dt),y=log_cumulative_return)) + geom_line()
 
+# mean, standard deviation, sharpe ratio
 mean(portfolio1$strategy_vw,na.rm=TRUE)
 sd(portfolio1$strategy_vw,na.rm=TRUE)
 mean(portfolio1$strategy_vw,na.rm=TRUE)/sd(portfolio1$strategy_vw,na.rm=TRUE)*sqrt(12)
@@ -84,6 +91,7 @@ mean(portfolio2$strategy_vw,na.rm=TRUE)
 sd(portfolio2$strategy_vw,na.rm=TRUE)
 mean(portfolio2$strategy_vw,na.rm=TRUE)/sd(portfolio1$strategy_vw,na.rm=TRUE)*sqrt(12)
 
+# add ff three factor
 marketfactor <- read_feather('ff_three_factor') %>% setDT
 monthly_market <- marketfactor[,list(mkt_rf=prod(1+mkt_rf)-1,
     hml=prod(1+HML)-1,
@@ -110,7 +118,8 @@ for(i in seq(1,4)) {
 
 # reshape
 cols=paste('lead',sep='',seq(0,25))
-melted <- task_two[!is.na(mcap_lag1) & !is.na(mom_bin) & !is.na(ID_bin), c('dt','permno','mcap_lag1','mom_bin','ID_bin',cols),with=FALSE] %>%
+melted <- task_two[!is.na(mcap_lag1) & !is.na(mom_bin) & !is.na(ID_bin),
+    c('dt','permno','mcap_lag1','mom_bin','ID_bin',cols),with=FALSE] %>%
     melt.data.table(id.vars=c('permno','dt','mcap_lag1','mom_bin','ID_bin'))
 melted[mom_bin == 5 & ID_bin == 5, type:='portfolio1_long']
 melted[mom_bin == 1 & ID_bin == 5, type:='portfolio1_short']
@@ -119,7 +128,8 @@ melted[mom_bin == 1 & ID_bin == 1, type:='portfolio2_short']
 melted <- melted[!is.na(type)]
 
 # portfolio construction
-melted <- melted[!is.na(value),list(value=sum(value*mcap_lag1)/sum(mcap_lag1)),by=list(dt,type,variable)]
+melted <- melted[!is.na(value),list(value=sum(value*mcap_lag1)/sum(mcap_lag1)),
+    by=list(dt,type,variable)]
 melted[,cumulative:=cumprod(1+value)-1,by=list(dt,type)]
 melted <- melted[,list(cumulative=mean(cumulative)),by=list(type,variable)]
 strat1 <- melted[type %in% c('portfolio1_long','portfolio1_short'),] %>%
