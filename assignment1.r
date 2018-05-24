@@ -6,10 +6,9 @@ require(dplyr)
 require(ggplot2)
 require(lubridate)
 
-setwd('F:\\study\\MFIN7037\\Assignment_1')
-# msf <- read_feather('msf_delisting_adjusted')
+setwd('F:\\study\\MFIN7037\\Assignment_1') # please set directory here
 csv <- fread('homework_class_1.csv')
-# msf <- data.table(msf,key=c('permno','dt'))
+
 
 # define functions
 end_of_month <- function(x){
@@ -17,6 +16,7 @@ end_of_month <- function(x){
      day(x) <- lubridate::days_in_month(x)        
      x %>% as.character
 }
+csv[,dt:=end_of_month(dt)]
 
 apply_quantiles <- function(x,include_in_quantiles=NULL,bins=10){
     if(is.null(include_in_quantiles)){
@@ -27,20 +27,6 @@ apply_quantiles <- function(x,include_in_quantiles=NULL,bins=10){
     quantiles['0%'] <- min(x,na.rm=TRUE)-1 ; quantiles['100%'] <- max(x,na.rm=TRUE)+1
     return(cut(x,breaks=quantiles,labels=FALSE))
 }
-
-# fix any gaps in the data
-# unique_dts <- msf[,list(dt,dummy=1)] %>% unique
-# start_end_every_stock <- msf[,list(start=min(dt),end=max(dt),dummy=1),by=list(permno)]
-# msf_no_gaps <- merge(start_end_every_stock,unique_dts, by='dummy',allow.cartesian=TRUE) %>%
-    # subset(dt>=start & dt<=end)
-# print(paste(nrow(msf),'before fixing gaps',Sys.time()))
-# msf <- merge(msf,msf_no_gaps[,list(permno,dt)],all.y=TRUE,by=c('permno','dt'))
-# print(paste(nrow(msf),'after fixing gaps',Sys.time()))
-# msf <- msf[,list(dt)] %>% unique %>% .[,end_of_month:=end_of_month(dt)] %>%
-    # merge(msf,by='dt')
-# rm(msf_no_gaps)
-# rm(start_end_every_stock)
-# rm(unique_dts)
 
 
 
@@ -53,7 +39,7 @@ rm(task_one)
 
 # ============TASK TWO============
 
-# ------Momentum Study------
+# ------Vanilla------
 
 # set bin
 task_two <- csv[abs(prc)>5 & !is.na(prc_lag13) & !is.na(mcap_lag1) & !is.na(ret_lag2)]
@@ -69,9 +55,10 @@ portfolio1 <- merge(portfolio[mom_bin==5 & ID_bin==5], portfolio[mom_bin==1 & ID
     suffixes=c('_long','_short'),by='dt')
 portfolio1[,strategy_vw:=portfolio_vw_long-portfolio_vw_short]
 portfolio1 <- portfolio1 %>% arrange(dt) %>% setDT
+portfolio1 <- na.omit(portfolio1)
 portfolio1[,cumulative_return:=cumprod(1+strategy_vw)-1]
 portfolio1[,log_cumulative_return:=ifelse(cumulative_return>0,log(cumulative_return),NA)]   
-ggplot(portfolio1,aes(x=as.Date(dt),y=log_cumulative_return)) + geom_line()
+ggplot(portfolio1,aes(x=as.Date(dt),y=log_cumulative_return)) + geom_line() + ggtitle('Strategy One')
 
 # strategy two
 portfolio2 <- merge(portfolio[mom_bin==5 & ID_bin==1], portfolio[mom_bin==1 & ID_bin==1],
@@ -80,16 +67,21 @@ portfolio2[,strategy_vw:=portfolio_vw_long-portfolio_vw_short]
 portfolio2 <- portfolio2 %>% arrange(dt) %>% setDT
 portfolio2[,cumulative_return:=cumprod(1+strategy_vw)-1]
 portfolio2[,log_cumulative_return:=ifelse(cumulative_return>0,log(cumulative_return),NA)] 
-ggplot(portfolio2,aes(x=as.Date(dt),y=log_cumulative_return)) + geom_line()
+ggplot(portfolio2,aes(x=as.Date(dt),y=log_cumulative_return)) + geom_line() + ggtitle('Strategy Two')
 
 # mean, standard deviation, sharpe ratio
+print('strategy one mean')
 mean(portfolio1$strategy_vw,na.rm=TRUE)
+print('strategy one sd')
 sd(portfolio1$strategy_vw,na.rm=TRUE)
-mean(portfolio1$strategy_vw,na.rm=TRUE)/sd(portfolio1$strategy_vw,na.rm=TRUE)*sqrt(12)
-
+print('strategy one sharpe')
+mean(portfolio1$strategy_vw,na.rm=TRUE)/sd(portfolio1$strategy_vw,na.rm=TRUE)*sqrt(12) # ignore risk free rate
+print('strategy two mean')
 mean(portfolio2$strategy_vw,na.rm=TRUE)
+print('strategy two sd')
 sd(portfolio2$strategy_vw,na.rm=TRUE)
-mean(portfolio2$strategy_vw,na.rm=TRUE)/sd(portfolio1$strategy_vw,na.rm=TRUE)*sqrt(12)
+print('strategy two sharpe')
+mean(portfolio2$strategy_vw,na.rm=TRUE)/sd(portfolio2$strategy_vw,na.rm=TRUE)*sqrt(12) # ignore risk free rate
 
 # add ff three factor
 marketfactor <- read_feather('ff_three_factor') %>% setDT
@@ -136,9 +128,43 @@ strat1 <- melted[type %in% c('portfolio1_long','portfolio1_short'),] %>%
     dcast.data.table(variable ~ type) %>%
     mutate(spread=portfolio1_long-portfolio1_short) %>%
     mutate(horizon=gsub(variable,pattern='lead',replacement='') %>% as.integer)
-ggplot(strat1,aes(x=horizon,y=spread)) + geom_line()
+ggplot(strat1,aes(x=horizon,y=spread)) + geom_line() + ggtitle('Strategy One')
 strat2 <- melted[type %in% c('portfolio2_long','portfolio2_short'),] %>%
     dcast.data.table(variable ~ type) %>%
     mutate(spread=portfolio2_long-portfolio2_short) %>%
     mutate(horizon=gsub(variable,pattern='lead',replacement='') %>% as.integer)
-ggplot(strat2,aes(x=horizon,y=spread)) + geom_line()
+ggplot(strat2,aes(x=horizon,y=spread)) + geom_line() + ggtitle('Strategy Two')
+
+# ============TASK THREE============
+
+# ------1------
+# check whether pure momentum strategy is better in term of sharpe ratio
+portfolio_alt <- task_two[,list(portfolio_vw=sum(ret_this_month*mcap_lag1)/sum(mcap_lag1)),
+    by=list(dt,mom_bin)]
+portfolio3 <- merge(portfolio_alt[mom_bin==5], portfolio_alt[mom_bin==1],suffixes=c('_long','_short'),by='dt')
+portfolio3[,strategy_vw:=portfolio_vw_long-portfolio_vw_short]
+portfolio3 <- portfolio3 %>% arrange(dt) %>% setDT
+portfolio3[,cumulative_return:=cumprod(1+strategy_vw)-1]
+portfolio3[,log_cumulative_return:=ifelse(cumulative_return>0,log(cumulative_return),NA)]
+mean(portfolio3$strategy_vw,na.rm=TRUE)/sd(portfolio3$strategy_vw,na.rm=TRUE)*sqrt(12)
+rm(portfolio_alt)
+rm(portfolio3)
+
+# ------3------
+# run a regression with ff four factor
+marketfactor_ff4 <- read_feather('ff_four_factor') %>% setDT
+monthly_market_ff4 <- marketfactor_ff4[,list(mkt_rf=prod(1+mkt_rf)-1,
+    hml=prod(1+HML)-1,
+    smb=prod(1+SMB)-1,
+    rf=prod(1+RF)-1,
+    mom=prod(1+Mom)-1
+),by=list(dt=end_of_month(dt))]
+
+portfolio2_ff4 <- merge(portfolio[mom_bin==5 & ID_bin==1], portfolio[mom_bin==1 & ID_bin==1],
+    suffixes=c('_long','_short'),by='dt')
+portfolio2_ff4[,strategy_vw:=portfolio_vw_long-portfolio_vw_short]
+portfolio2_ff4 <- portfolio2_ff4 %>% arrange(dt) %>% setDT
+portfolio2_ff4[,cumulative_return:=cumprod(1+strategy_vw)-1]
+portfolio2_ff4[,log_cumulative_return:=ifelse(cumulative_return>0,log(cumulative_return),NA)] 
+portfolio2_ff4 <- merge(portfolio2_ff4,monthly_market_ff4,by='dt')
+lm(data=portfolio2_ff4,strategy_vw ~ mkt_rf + hml + smb + mom) %>% summary
